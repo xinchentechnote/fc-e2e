@@ -9,24 +9,41 @@
 #   沪：SDK 发单 -> 交易所收单校验 -> 交易所回受理确认+成交 -> SDK 逐字段校验；撤单拒绝
 #   深：同构（SZSE 二进制协议，字段映射独立）
 #
-# 前置：本仓与 ../fcounter、../fbsdk、../gt-auto 同级检出；Rust + Go 工具链；
+# 前置：本仓与 ../fcounter、../fbsdk 同级检出；Rust + Go 工具链；
 #       私有仓 git 凭证（fcounter 构建经 git tag 拉取 fcp / fbsdk）。
-# 环境变量：FCOUNTER_DIR / GT_AUTO_DIR / FBSDK_DIR（默认同级检出，可整体覆盖）、
+# gt-auto 二进制来源三选一（优先级从高到低，脚本自动择一）：
+#   GT_AUTO_BIN   显式指定的预编译二进制
+#   GT_AUTO_DIR   gt-auto 检出（默认 ../gt-auto），现场构建
+#   PATH          已安装的 gt-auto-fcounter（scripts/install_gt_auto.sh 安装）
+# 环境变量：FCOUNTER_DIR / FBSDK_DIR / GT_AUTO_DIR / GT_AUTO_BIN（见上）、
 #           E2E_KEEP=1 保留临时工作目录（失败排查/CI 上传报告用）。
 set -eu
 cd "$(dirname "$0")/.."
 
 FCOUNTER_DIR=${FCOUNTER_DIR:-../fcounter}
-GT_AUTO_DIR=${GT_AUTO_DIR:-../gt-auto}
 FBSDK_DIR=${FBSDK_DIR:-../fbsdk}
+GT_AUTO_DIR_SET=${GT_AUTO_DIR+set}
+GT_AUTO_DIR=${GT_AUTO_DIR:-../gt-auto}
+GT_AUTO_BIN=${GT_AUTO_BIN:-}
 # 统一解析为绝对路径：后续子壳会 cd 进各仓，相对路径会从错误基准解析；
 # 缺失检出在此 fail-fast 并给出可操作的提示
-for d in "$FCOUNTER_DIR" "$GT_AUTO_DIR" "$FBSDK_DIR"; do
-    [ -d "$d" ] || { echo "缺少同级检出：${d}（可用 FCOUNTER_DIR / GT_AUTO_DIR / FBSDK_DIR 覆盖）" >&2; exit 1; }
+for d in "$FCOUNTER_DIR" "$FBSDK_DIR"; do
+    [ -d "$d" ] || { echo "缺少同级检出：${d}（可用 FCOUNTER_DIR / FBSDK_DIR 覆盖）" >&2; exit 1; }
 done
 FCOUNTER_DIR=$(cd "$FCOUNTER_DIR" && pwd)
-GT_AUTO_DIR=$(cd "$GT_AUTO_DIR" && pwd)
 FBSDK_DIR=$(cd "$FBSDK_DIR" && pwd)
+
+if [ -n "$GT_AUTO_BIN" ]; then
+    :  # 显式指定，直接使用
+elif [ -d "$GT_AUTO_DIR" ]; then
+    BUILD_GT_AUTO=1
+    GT_AUTO_DIR=$(cd "$GT_AUTO_DIR" && pwd)
+elif [ -n "$GT_AUTO_DIR_SET" ]; then
+    echo "GT_AUTO_DIR 指定的检出不存在：$GT_AUTO_DIR" >&2; exit 1
+else
+    GT_AUTO_BIN=$(command -v gt-auto-fcounter 2>/dev/null || true)
+    [ -n "$GT_AUTO_BIN" ] || { echo "找不到 gt-auto：无同级检出（默认 ${GT_AUTO_DIR}，可用 GT_AUTO_DIR 覆盖），PATH 中也无 gt-auto-fcounter——先 scripts/install_gt_auto.sh 安装，或以 GT_AUTO_BIN 指定二进制" >&2; exit 1; }
+fi
 E2E_DIR=$PWD  # 用例由本仓维护（e2e/gtauto/）；子壳 cd 后 PWD 会变
 WORK=$(mktemp -d /tmp/fcounter-gtauto.XXXXXX)
 trap 'kill ${APP_PID:-0} 2>/dev/null || true; [ -n "${E2E_KEEP:-}" ] || rm -rf "$WORK"' EXIT
@@ -55,13 +72,18 @@ if [ "$(uname)" = "Darwin" ] && [ -f "$DYLIB" ]; then
     esac
 fi
 
-echo "=== 3/4 构建 gt-auto（-tags fbsdk）==="
-# cgo 链接需 fbsdk-ffi cdylib 的路径（模块缓存内不含 Rust 产物）。
-# -rpath 随检出路径进入链接输入：检出搬过位置时 go 构建缓存必然失效重链，
-# 否则陈旧二进制会一直引用旧 install_name（go 缓存不感知 dylib 变化）。
-(cd "$GT_AUTO_DIR" && CGO_ENABLED=1 \
-    CGO_LDFLAGS="-L$FBSDK_DIR/target/release -Wl,-rpath,$FBSDK_DIR/target/release" \
-    go build -tags fbsdk -o bin/gt-auto-fcounter ./cmd/gt-auto)
+if [ -n "${BUILD_GT_AUTO:-}" ]; then
+    echo "=== 3/4 构建 gt-auto（-tags fbsdk，检出：${GT_AUTO_DIR}）==="
+    # cgo 链接需 fbsdk-ffi cdylib 的路径（模块缓存内不含 Rust 产物）。
+    # -rpath 随检出路径进入链接输入：检出搬过位置时 go 构建缓存必然失效重链，
+    # 否则陈旧二进制会一直引用旧 install_name（go 缓存不感知 dylib 变化）。
+    (cd "$GT_AUTO_DIR" && CGO_ENABLED=1 \
+        CGO_LDFLAGS="-L$FBSDK_DIR/target/release -Wl,-rpath,$FBSDK_DIR/target/release" \
+        go build -tags fbsdk -o bin/gt-auto-fcounter ./cmd/gt-auto)
+    GT_AUTO_BIN="$GT_AUTO_DIR/bin/gt-auto-fcounter"
+else
+    echo "=== 3/4 使用预编译 gt-auto：${GT_AUTO_BIN}（跳过构建）==="
+fi
 
 # run_market <标签> <交易所 sse|szse> <gt-auto 监听口> <gt-auto 配置> <用例>
 run_market() {
@@ -95,10 +117,10 @@ CFG
     done
 
     RC=0
-    (cd "$GT_AUTO_DIR" && ./bin/gt-auto-fcounter \
+    "$GT_AUTO_BIN" \
         --casePath "$E2E_DIR/e2e/gtauto/$gt_case" \
         --config   "$E2E_DIR/e2e/gtauto/$gt_conf" \
-        --report   "$WORK/gtauto-report-$tag.json") || RC=$?
+        --report   "$WORK/gtauto-report-$tag.json" || RC=$?
 
     # 停机确定性：TERM -> 2s 宽限 -> KILL（counter 热线程为忙轮询设计，必须确保退出）
     kill "$APP_PID" 2>/dev/null || true

@@ -38,14 +38,27 @@ gt-auto 交易所侧对网关 Logon 自动回 PlatformState Open（counter-gw �
 
 ## 运行
 
-前置：本仓与 `../fcounter`、`../fbsdk`、`../gt-auto` 同级检出（目录名可用
-`FCOUNTER_DIR` / `FBSDK_DIR` / `GT_AUTO_DIR` 覆盖）；Rust + Go 1.25+ 工具链；
-私有仓 git 凭证（fcounter 构建经 git tag 拉取 fcp / fbsdk）。
+前置：本仓与 `../fcounter`、`../fbsdk` 同级检出（`FCOUNTER_DIR` / `FBSDK_DIR` 可覆盖）；
+Rust + Go 1.25+ 工具链；私有仓 git 凭证（fcounter 构建经 git tag 拉取 fcp / fbsdk）。
+
+gt-auto 二进制来源三选一，脚本自动择一（优先级从高到低）：
+
+1. `GT_AUTO_BIN` 显式指定的预编译二进制；
+2. `GT_AUTO_DIR` 检出现场构建（默认 `../gt-auto`，CI 走这条路）；
+3. PATH 中的 `gt-auto-fcounter`——本地推荐：安装一次，日常无需 gt-auto 检出。
 
 ```sh
-./scripts/e2e_gt_auto.sh            # 沪 + 深两轮；两轮全过退出 0
-E2E_KEEP=1 ./scripts/e2e_gt_auto.sh # 保留 /tmp/fcounter-gtauto.*（柜台日志 + JSON 报告）
+# 方式一：本地安装（gt-auto 检出在别处时以 GT_AUTO_DIR 指定）
+GT_AUTO_DIR=$HOME/workspace/gt-auto ./scripts/install_gt_auto.sh   # → ~/go/bin/gt-auto-fcounter
+./scripts/e2e_gt_auto.sh
+
+# 方式二：gt-auto 同级检出现场构建
+./scripts/e2e_gt_auto.sh
+
+E2E_KEEP=1 ./scripts/e2e_gt_auto.sh   # 保留 /tmp/fcounter-gtauto.*（柜台日志 + JSON 报告）
 ```
+
+安装的二进制动态链接 fbsdk-ffi cdylib 并记录其路径——fbsdk 检出移动后须重跑安装。
 
 ## 与 gt-auto 仓 testdata 的关系
 
