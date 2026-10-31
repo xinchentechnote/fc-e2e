@@ -44,6 +44,9 @@ jobs:
           git config --global url."https://x-access-token:${{ secrets.XC_READ_TOKEN }}@github.com/xinchentechnote/fcp.git".insteadOf "https://github.com/xinchentechnote/fcp.git"
           git config --global url."https://x-access-token:${{ secrets.XC_READ_TOKEN }}@github.com/xinchentechnote/fbsdk.git".insteadOf "https://github.com/xinchentechnote/fbsdk.git"
           git config --global url."https://x-access-token:${{ secrets.XC_READ_TOKEN }}@github.com/xinchentechnote/omni-rt-engine.git".insteadOf "https://github.com/xinchentechnote/omni-rt-engine.git"
+          # Go 模块拉取的 git URL 不带 .git 后缀（go list-remote https://github.com/
+          # xinchentechnote/fbsdk），上面的 .git 前缀匹配不上——单列一条无后缀的
+          git config --global url."https://x-access-token:${{ secrets.XC_READ_TOKEN }}@github.com/xinchentechnote/fbsdk".insteadOf "https://github.com/xinchentechnote/fbsdk"
 
       - uses: dtolnay/rust-toolchain@1.92
       - uses: actions/setup-go@v5
@@ -63,6 +66,8 @@ jobs:
           FCOUNTER_DIR: fcounter
           FBSDK_DIR: fbsdk
           GT_AUTO_DIR: gt-auto
+          # 私有 Go 模块：跳过 proxy/sumdb，走 direct + 上面注入的 git 凭证
+          GOPRIVATE: github.com/xinchentechnote/fbsdk/*
         run: ./scripts/e2e_gt_auto.sh
 
       - name: 上传柜台日志与验收报告
