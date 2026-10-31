@@ -1,0 +1,66 @@
+name: e2e
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gtauto:
+    name: gt-auto 全链路验收（沪+深）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 被测系统与工具链仓按 scripts/e2e_gt_auto.sh 的默认布局同级检出。
+      # 四仓均为私有仓库，XC_READ_TOKEN 为对各仓只读的 fine-grained PAT。
+      - uses: actions/checkout@v4
+        with:
+          repository: xinchentechnote/fcounter
+          path: fcounter
+          token: ${{ secrets.XC_READ_TOKEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: xinchentechnote/fbsdk
+          path: fbsdk
+          token: ${{ secrets.XC_READ_TOKEN }}
+      - uses: actions/checkout@v4
+        with:
+          repository: xinchentechnote/gt-auto
+          path: gt-auto
+          token: ${{ secrets.XC_READ_TOKEN }}
+
+      # fcounter 构建 git tag 依赖 fcp / fbsdk（私有，匿名拉取 404）：凭证经
+      # insteadOf 注入，配套 fcounter .cargo/config.toml 的 git-fetch-with-cli，
+      # 两者缺一即 404（默认构建不内嵌风控引擎，无需 omni-rt-engine 凭证）。
+      - name: 配置私有仓库拉取凭证
+        run: |
+          git config --global url."https://x-access-token:${{ secrets.XC_READ_TOKEN }}@github.com/xinchentechnote/fcp.git".insteadOf "https://github.com/xinchentechnote/fcp.git"
+          git config --global url."https://x-access-token:${{ secrets.XC_READ_TOKEN }}@github.com/xinchentechnote/fbsdk.git".insteadOf "https://github.com/xinchentechnote/fbsdk.git"
+
+      - uses: dtolnay/rust-toolchain@1.92
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: gt-auto/go.mod
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            fcounter
+            fbsdk
+
+      - name: gt-auto 全链路验收（沪 + 深）
+        env:
+          E2E_KEEP: '1'
+        run: ./scripts/e2e_gt_auto.sh
+
+      - name: 上传柜台日志与验收报告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gtauto-logs
+          path: /tmp/fcounter-gtauto.*/
+          if-no-files-found: ignore

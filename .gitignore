@@ -1,0 +1,4 @@
+.DS_Store
+
+# E2E_KEEP=1 调试时误放在仓内的运行产物
+*.report.json
