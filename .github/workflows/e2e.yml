@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 被测系统与工具链仓按 scripts/e2e_gt_auto.sh 的默认布局同级检出。
+      # 被测系统与工具链仓检出于工作区内（e2e 步骤经 env 指给脚本）。
       # 四仓均为私有仓库，XC_READ_TOKEN 为对各仓只读的 fine-grained PAT。
       - uses: actions/checkout@v4
         with:
@@ -55,6 +55,11 @@ jobs:
       - name: gt-auto 全链路验收（沪 + 深）
         env:
           E2E_KEEP: '1'
+          # 同级仓检出于工作区内（$GITHUB_WORKSPACE/<repo>），而脚本默认在
+          # 检出目录外一级（../<repo>）找同级仓——此处显式指给脚本
+          FCOUNTER_DIR: fcounter
+          FBSDK_DIR: fbsdk
+          GT_AUTO_DIR: gt-auto
         run: ./scripts/e2e_gt_auto.sh
 
       - name: 上传柜台日志与验收报告
