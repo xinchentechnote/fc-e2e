@@ -34,13 +34,16 @@ jobs:
           path: gt-auto
           token: ${{ secrets.XC_READ_TOKEN }}
 
-      # fcounter 构建 git tag 依赖 fcp / fbsdk（私有，匿名拉取 404）：凭证经
-      # insteadOf 注入，配套 fcounter .cargo/config.toml 的 git-fetch-with-cli，
-      # 两者缺一即 404（默认构建不内嵌风控引擎，无需 omni-rt-engine 凭证）。
+      # fcounter 构建的 git tag 依赖（私有，匿名拉取 404）：凭证经 insteadOf 注入，
+      # 配套 fcounter .cargo/config.toml 的 git-fetch-with-cli，两者缺一即 404。
+      # 注意默认构建（不内嵌引擎）也需 omni-rt-engine 凭证：提交的 Cargo.lock 为
+      # risk-engine 形态生成（counter-app 条目含 counter-risk-adapter → rt-core），
+      # 冷 ~/.cargo/git/db 下 cargo 按 resolve 全量 fetch，缺 omni 凭证即在构建前失败。
       - name: 配置私有仓库拉取凭证
         run: |
           git config --global url."https://x-access-token:${{ secrets.XC_READ_TOKEN }}@github.com/xinchentechnote/fcp.git".insteadOf "https://github.com/xinchentechnote/fcp.git"
           git config --global url."https://x-access-token:${{ secrets.XC_READ_TOKEN }}@github.com/xinchentechnote/fbsdk.git".insteadOf "https://github.com/xinchentechnote/fbsdk.git"
+          git config --global url."https://x-access-token:${{ secrets.XC_READ_TOKEN }}@github.com/xinchentechnote/omni-rt-engine.git".insteadOf "https://github.com/xinchentechnote/omni-rt-engine.git"
 
       - uses: dtolnay/rust-toolchain@1.92
       - uses: actions/setup-go@v5
